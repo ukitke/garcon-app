@@ -90,7 +90,7 @@ export class WaiterTabletController {
     try {
       const { orderId } = req.params;
       const { status, notes } = req.body;
-      const waiterId = req.user?.userId; // Assuming auth middleware sets this
+      const waiterId = (req as any).user?.userId; // Assuming auth middleware sets this
 
       if (!waiterId) {
         res.status(401).json({
@@ -119,7 +119,7 @@ export class WaiterTabletController {
     try {
       const { orderId } = req.params;
       const { tableNumber } = req.body;
-      const waiterId = req.user?.userId;
+      const waiterId = (req as any).user?.userId;
 
       if (!waiterId) {
         res.status(401).json({

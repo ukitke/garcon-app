@@ -391,7 +391,7 @@ export class PaymentService {
       return {
         refundId: refundResult.rows[0].id,
         amount: refundAmount,
-        status: this.mapProviderStatus(providerRefund.status),
+        status: this.mapProviderStatus(providerRefund.status) as "pending" | "succeeded" | "failed",
         reason: request.reason
       };
 

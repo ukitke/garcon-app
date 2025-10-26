@@ -533,6 +533,26 @@ class ApiService {
       url: '/loyalty/rewards',
     });
   }
+
+  // Additional methods for new screens
+  async getOrderHistory(limit: number = 20, offset: number = 0): Promise<ApiResponse<any[]>> {
+    return this.getUserOrders(limit, offset);
+  }
+
+  async deleteNotification(notificationId: string): Promise<ApiResponse> {
+    return this.request({
+      method: 'DELETE',
+      url: `/notifications/${notificationId}`,
+    });
+  }
+
+  async forgotPassword(email: string): Promise<ApiResponse> {
+    return this.request({
+      method: 'POST',
+      url: '/auth/forgot-password',
+      data: { email },
+    });
+  }
 }
 
 export const apiService = new ApiService();

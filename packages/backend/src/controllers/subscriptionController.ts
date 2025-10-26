@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import { subscriptionService } from '../services/subscriptionService';
+import SubscriptionService from '../services/subscriptionService';
+
+const subscriptionService = new SubscriptionService();
 
 export class SubscriptionController {
   async getPlans(req: Request, res: Response): Promise<void> {
@@ -114,9 +116,7 @@ export class SubscriptionController {
 
       const subscription = await subscriptionService.createSubscription(
         locationId,
-        planId,
-        paymentMethodId,
-        trialDays
+        planId
       );
       
       res.status(201).json({
@@ -165,7 +165,7 @@ export class SubscriptionController {
       const { subscriptionId } = req.params;
       const { immediately = false } = req.body;
 
-      const subscription = await subscriptionService.cancelSubscription(subscriptionId, immediately);
+      const subscription = await subscriptionService.cancelSubscription(subscriptionId);
       
       res.json({
         success: true,

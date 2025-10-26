@@ -165,7 +165,7 @@ export interface MenuResponse {
 }
 
 export interface ImageUploadRequest {
-  file: Express.Multer.File;
+  file: any;
 }
 
 export interface ImageUploadResponse {

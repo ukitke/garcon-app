@@ -1,1 +1,722 @@
-import { EventEmitter } from 'events';\nimport { performance, PerformanceObserver } from 'perf_hooks';\nimport { Pool } from 'pg';\nimport { Redis } from 'ioredis';\nimport os from 'os';\nimport process from 'process';\n\ninterface PerformanceMetric {\n  name: string;\n  value: number;\n  unit: string;\n  timestamp: Date;\n  tags?: Record<string, string>;\n}\n\ninterface SystemMetrics {\n  cpu: {\n    usage: number;\n    loadAverage: number[];\n    cores: number;\n  };\n  memory: {\n    used: number;\n    free: number;\n    total: number;\n    usage: number;\n    heapUsed: number;\n    heapTotal: number;\n  };\n  disk: {\n    usage: number;\n    free: number;\n    total: number;\n  };\n  network: {\n    bytesIn: number;\n    bytesOut: number;\n  };\n}\n\ninterface ApplicationMetrics {\n  requests: {\n    total: number;\n    perSecond: number;\n    averageResponseTime: number;\n    errorRate: number;\n  };\n  database: {\n    connections: number;\n    queryTime: number;\n    slowQueries: number;\n  };\n  cache: {\n    hitRate: number;\n    memoryUsage: number;\n    operations: number;\n  };\n  websockets: {\n    connections: number;\n    messagesPerSecond: number;\n  };\n}\n\ninterface PerformanceAlert {\n  id: string;\n  type: 'cpu' | 'memory' | 'disk' | 'response_time' | 'error_rate' | 'database' | 'cache';\n  severity: 'low' | 'medium' | 'high' | 'critical';\n  message: string;\n  value: number;\n  threshold: number;\n  timestamp: Date;\n  resolved: boolean;\n}\n\ninterface PerformanceThresholds {\n  cpu: { warning: number; critical: number };\n  memory: { warning: number; critical: number };\n  disk: { warning: number; critical: number };\n  responseTime: { warning: number; critical: number };\n  errorRate: { warning: number; critical: number };\n  databaseConnections: { warning: number; critical: number };\n  cacheHitRate: { warning: number; critical: number };\n}\n\nclass PerformanceMonitoringService extends EventEmitter {\n  private dbPool: Pool;\n  private redis: Redis;\n  private metrics: Map<string, PerformanceMetric[]> = new Map();\n  private alerts: PerformanceAlert[] = [];\n  private thresholds: PerformanceThresholds;\n  private monitoringInterval: NodeJS.Timeout | null = null;\n  private performanceObserver: PerformanceObserver | null = null;\n  private requestMetrics: {\n    count: number;\n    totalTime: number;\n    errors: number;\n    lastReset: number;\n  } = {\n    count: 0,\n    totalTime: 0,\n    errors: 0,\n    lastReset: Date.now(),\n  };\n\n  constructor(dbPool: Pool, redis: Redis) {\n    super();\n    this.dbPool = dbPool;\n    this.redis = redis;\n    \n    this.thresholds = {\n      cpu: { warning: 70, critical: 90 },\n      memory: { warning: 80, critical: 95 },\n      disk: { warning: 85, critical: 95 },\n      responseTime: { warning: 1000, critical: 3000 }, // milliseconds\n      errorRate: { warning: 5, critical: 10 }, // percentage\n      databaseConnections: { warning: 80, critical: 95 }, // percentage of max\n      cacheHitRate: { warning: 80, critical: 60 }, // percentage (lower is worse)\n    };\n    \n    this.setupPerformanceObserver();\n    this.startMonitoring();\n  }\n\n  private setupPerformanceObserver() {\n    this.performanceObserver = new PerformanceObserver((list) => {\n      const entries = list.getEntries();\n      \n      entries.forEach((entry) => {\n        this.recordMetric({\n          name: entry.name,\n          value: entry.duration,\n          unit: 'ms',\n          timestamp: new Date(),\n          tags: {\n            type: entry.entryType,\n          },\n        });\n      });\n    });\n    \n    this.performanceObserver.observe({ entryTypes: ['measure', 'navigation', 'resource'] });\n  }\n\n  private startMonitoring() {\n    // Collect metrics every 30 seconds\n    this.monitoringInterval = setInterval(async () => {\n      await this.collectSystemMetrics();\n      await this.collectApplicationMetrics();\n      await this.checkThresholds();\n      await this.cleanupOldMetrics();\n    }, 30000);\n    \n    // Reset request metrics every minute\n    setInterval(() => {\n      this.resetRequestMetrics();\n    }, 60000);\n  }\n\n  public recordMetric(metric: PerformanceMetric) {\n    if (!this.metrics.has(metric.name)) {\n      this.metrics.set(metric.name, []);\n    }\n    \n    const metricArray = this.metrics.get(metric.name)!;\n    metricArray.push(metric);\n    \n    // Keep only last 1000 metrics per type\n    if (metricArray.length > 1000) {\n      metricArray.splice(0, metricArray.length - 1000);\n    }\n    \n    // Store in Redis for persistence\n    this.storeMetricInRedis(metric);\n  }\n\n  private async storeMetricInRedis(metric: PerformanceMetric) {\n    try {\n      const key = `metrics:${metric.name}:${Math.floor(metric.timestamp.getTime() / 60000)}`; // Per minute\n      await this.redis.lpush(key, JSON.stringify(metric));\n      await this.redis.expire(key, 86400); // Keep for 24 hours\n    } catch (error) {\n      console.error('Failed to store metric in Redis:', error);\n    }\n  }\n\n  public recordRequest(responseTime: number, isError: boolean = false) {\n    this.requestMetrics.count++;\n    this.requestMetrics.totalTime += responseTime;\n    \n    if (isError) {\n      this.requestMetrics.errors++;\n    }\n    \n    // Record individual request metric\n    this.recordMetric({\n      name: 'http_request_duration',\n      value: responseTime,\n      unit: 'ms',\n      timestamp: new Date(),\n      tags: {\n        status: isError ? 'error' : 'success',\n      },\n    });\n  }\n\n  private resetRequestMetrics() {\n    const now = Date.now();\n    const timeDiff = (now - this.requestMetrics.lastReset) / 1000; // seconds\n    \n    // Calculate rates\n    const requestsPerSecond = this.requestMetrics.count / timeDiff;\n    const averageResponseTime = this.requestMetrics.count > 0 \n      ? this.requestMetrics.totalTime / this.requestMetrics.count \n      : 0;\n    const errorRate = this.requestMetrics.count > 0 \n      ? (this.requestMetrics.errors / this.requestMetrics.count) * 100 \n      : 0;\n    \n    // Record aggregated metrics\n    this.recordMetric({\n      name: 'requests_per_second',\n      value: requestsPerSecond,\n      unit: 'req/s',\n      timestamp: new Date(),\n    });\n    \n    this.recordMetric({\n      name: 'average_response_time',\n      value: averageResponseTime,\n      unit: 'ms',\n      timestamp: new Date(),\n    });\n    \n    this.recordMetric({\n      name: 'error_rate',\n      value: errorRate,\n      unit: '%',\n      timestamp: new Date(),\n    });\n    \n    // Reset counters\n    this.requestMetrics = {\n      count: 0,\n      totalTime: 0,\n      errors: 0,\n      lastReset: now,\n    };\n  }\n\n  private async collectSystemMetrics() {\n    try {\n      // CPU metrics\n      const cpuUsage = await this.getCPUUsage();\n      const loadAverage = os.loadavg();\n      \n      this.recordMetric({\n        name: 'cpu_usage',\n        value: cpuUsage,\n        unit: '%',\n        timestamp: new Date(),\n      });\n      \n      this.recordMetric({\n        name: 'load_average_1m',\n        value: loadAverage[0],\n        unit: 'load',\n        timestamp: new Date(),\n      });\n      \n      // Memory metrics\n      const memoryUsage = process.memoryUsage();\n      const totalMemory = os.totalmem();\n      const freeMemory = os.freemem();\n      const usedMemory = totalMemory - freeMemory;\n      const memoryUsagePercent = (usedMemory / totalMemory) * 100;\n      \n      this.recordMetric({\n        name: 'memory_usage',\n        value: memoryUsagePercent,\n        unit: '%',\n        timestamp: new Date(),\n      });\n      \n      this.recordMetric({\n        name: 'heap_used',\n        value: memoryUsage.heapUsed / 1024 / 1024, // MB\n        unit: 'MB',\n        timestamp: new Date(),\n      });\n      \n      // Disk metrics (simplified - would need more sophisticated implementation for production)\n      const diskUsage = await this.getDiskUsage();\n      this.recordMetric({\n        name: 'disk_usage',\n        value: diskUsage,\n        unit: '%',\n        timestamp: new Date(),\n      });\n      \n    } catch (error) {\n      console.error('Failed to collect system metrics:', error);\n    }\n  }\n\n  private async collectApplicationMetrics() {\n    try {\n      // Database metrics\n      const dbStats = {\n        totalConnections: this.dbPool.totalCount,\n        idleConnections: this.dbPool.idleCount,\n        waitingClients: this.dbPool.waitingCount,\n        maxConnections: this.dbPool.options.max || 20,\n      };\n      \n      const connectionUsage = (dbStats.totalConnections / dbStats.maxConnections) * 100;\n      \n      this.recordMetric({\n        name: 'database_connections',\n        value: connectionUsage,\n        unit: '%',\n        timestamp: new Date(),\n      });\n      \n      this.recordMetric({\n        name: 'database_waiting_clients',\n        value: dbStats.waitingClients,\n        unit: 'count',\n        timestamp: new Date(),\n      });\n      \n      // Cache metrics\n      const cacheInfo = await this.redis.info('memory');\n      const cacheStats = this.parseCacheInfo(cacheInfo);\n      \n      this.recordMetric({\n        name: 'cache_memory_usage',\n        value: cacheStats.usedMemory / 1024 / 1024, // MB\n        unit: 'MB',\n        timestamp: new Date(),\n      });\n      \n      // Get cache hit rate from our cache service if available\n      const cacheHitRate = await this.getCacheHitRate();\n      if (cacheHitRate !== null) {\n        this.recordMetric({\n          name: 'cache_hit_rate',\n          value: cacheHitRate,\n          unit: '%',\n          timestamp: new Date(),\n        });\n      }\n      \n    } catch (error) {\n      console.error('Failed to collect application metrics:', error);\n    }\n  }\n\n  private async getCPUUsage(): Promise<number> {\n    return new Promise((resolve) => {\n      const startUsage = process.cpuUsage();\n      const startTime = process.hrtime();\n      \n      setTimeout(() => {\n        const endUsage = process.cpuUsage(startUsage);\n        const endTime = process.hrtime(startTime);\n        \n        const totalTime = endTime[0] * 1000000 + endTime[1] / 1000; // microseconds\n        const cpuTime = endUsage.user + endUsage.system;\n        const cpuUsage = (cpuTime / totalTime) * 100;\n        \n        resolve(Math.min(cpuUsage, 100)); // Cap at 100%\n      }, 100);\n    });\n  }\n\n  private async getDiskUsage(): Promise<number> {\n    // Simplified disk usage - in production, you'd want to use a proper library\n    // like 'node-disk-info' or similar\n    try {\n      const { execSync } = require('child_process');\n      const output = execSync('df -h /', { encoding: 'utf8' });\n      const lines = output.split('\\n');\n      if (lines.length > 1) {\n        const parts = lines[1].split(/\\s+/);\n        const usagePercent = parseInt(parts[4].replace('%', ''));\n        return usagePercent;\n      }\n    } catch (error) {\n      console.error('Failed to get disk usage:', error);\n    }\n    return 0;\n  }\n\n  private parseCacheInfo(info: string): { usedMemory: number; maxMemory: number } {\n    const lines = info.split('\\r\\n');\n    let usedMemory = 0;\n    let maxMemory = 0;\n    \n    lines.forEach(line => {\n      if (line.startsWith('used_memory:')) {\n        usedMemory = parseInt(line.split(':')[1]);\n      } else if (line.startsWith('maxmemory:')) {\n        maxMemory = parseInt(line.split(':')[1]);\n      }\n    });\n    \n    return { usedMemory, maxMemory };\n  }\n\n  private async getCacheHitRate(): Promise<number | null> {\n    try {\n      const stats = await this.redis.hgetall('cache:stats');\n      if (stats && stats.hitRate) {\n        return parseFloat(stats.hitRate);\n      }\n    } catch (error) {\n      console.error('Failed to get cache hit rate:', error);\n    }\n    return null;\n  }\n\n  private async checkThresholds() {\n    const now = new Date();\n    \n    // Get latest metrics\n    const latestMetrics = new Map<string, number>();\n    \n    this.metrics.forEach((metricArray, name) => {\n      if (metricArray.length > 0) {\n        const latest = metricArray[metricArray.length - 1];\n        latestMetrics.set(name, latest.value);\n      }\n    });\n    \n    // Check CPU usage\n    const cpuUsage = latestMetrics.get('cpu_usage');\n    if (cpuUsage !== undefined) {\n      if (cpuUsage > this.thresholds.cpu.critical) {\n        this.createAlert('cpu', 'critical', `CPU usage is critically high: ${cpuUsage.toFixed(1)}%`, cpuUsage, this.thresholds.cpu.critical);\n      } else if (cpuUsage > this.thresholds.cpu.warning) {\n        this.createAlert('cpu', 'high', `CPU usage is high: ${cpuUsage.toFixed(1)}%`, cpuUsage, this.thresholds.cpu.warning);\n      }\n    }\n    \n    // Check memory usage\n    const memoryUsage = latestMetrics.get('memory_usage');\n    if (memoryUsage !== undefined) {\n      if (memoryUsage > this.thresholds.memory.critical) {\n        this.createAlert('memory', 'critical', `Memory usage is critically high: ${memoryUsage.toFixed(1)}%`, memoryUsage, this.thresholds.memory.critical);\n      } else if (memoryUsage > this.thresholds.memory.warning) {\n        this.createAlert('memory', 'high', `Memory usage is high: ${memoryUsage.toFixed(1)}%`, memoryUsage, this.thresholds.memory.warning);\n      }\n    }\n    \n    // Check response time\n    const responseTime = latestMetrics.get('average_response_time');\n    if (responseTime !== undefined) {\n      if (responseTime > this.thresholds.responseTime.critical) {\n        this.createAlert('response_time', 'critical', `Response time is critically slow: ${responseTime.toFixed(0)}ms`, responseTime, this.thresholds.responseTime.critical);\n      } else if (responseTime > this.thresholds.responseTime.warning) {\n        this.createAlert('response_time', 'high', `Response time is slow: ${responseTime.toFixed(0)}ms`, responseTime, this.thresholds.responseTime.warning);\n      }\n    }\n    \n    // Check error rate\n    const errorRate = latestMetrics.get('error_rate');\n    if (errorRate !== undefined) {\n      if (errorRate > this.thresholds.errorRate.critical) {\n        this.createAlert('error_rate', 'critical', `Error rate is critically high: ${errorRate.toFixed(1)}%`, errorRate, this.thresholds.errorRate.critical);\n      } else if (errorRate > this.thresholds.errorRate.warning) {\n        this.createAlert('error_rate', 'high', `Error rate is high: ${errorRate.toFixed(1)}%`, errorRate, this.thresholds.errorRate.warning);\n      }\n    }\n    \n    // Check database connections\n    const dbConnections = latestMetrics.get('database_connections');\n    if (dbConnections !== undefined) {\n      if (dbConnections > this.thresholds.databaseConnections.critical) {\n        this.createAlert('database', 'critical', `Database connection usage is critically high: ${dbConnections.toFixed(1)}%`, dbConnections, this.thresholds.databaseConnections.critical);\n      } else if (dbConnections > this.thresholds.databaseConnections.warning) {\n        this.createAlert('database', 'high', `Database connection usage is high: ${dbConnections.toFixed(1)}%`, dbConnections, this.thresholds.databaseConnections.warning);\n      }\n    }\n    \n    // Check cache hit rate (lower is worse)\n    const cacheHitRate = latestMetrics.get('cache_hit_rate');\n    if (cacheHitRate !== undefined) {\n      if (cacheHitRate < this.thresholds.cacheHitRate.critical) {\n        this.createAlert('cache', 'critical', `Cache hit rate is critically low: ${cacheHitRate.toFixed(1)}%`, cacheHitRate, this.thresholds.cacheHitRate.critical);\n      } else if (cacheHitRate < this.thresholds.cacheHitRate.warning) {\n        this.createAlert('cache', 'medium', `Cache hit rate is low: ${cacheHitRate.toFixed(1)}%`, cacheHitRate, this.thresholds.cacheHitRate.warning);\n      }\n    }\n  }\n\n  private createAlert(\n    type: PerformanceAlert['type'],\n    severity: PerformanceAlert['severity'],\n    message: string,\n    value: number,\n    threshold: number\n  ) {\n    // Check if similar alert already exists and is not resolved\n    const existingAlert = this.alerts.find(alert => \n      alert.type === type && \n      alert.severity === severity && \n      !alert.resolved &&\n      Date.now() - alert.timestamp.getTime() < 300000 // 5 minutes\n    );\n    \n    if (existingAlert) {\n      return; // Don't create duplicate alerts\n    }\n    \n    const alert: PerformanceAlert = {\n      id: `${type}_${severity}_${Date.now()}`,\n      type,\n      severity,\n      message,\n      value,\n      threshold,\n      timestamp: new Date(),\n      resolved: false,\n    };\n    \n    this.alerts.push(alert);\n    \n    // Keep only last 100 alerts\n    if (this.alerts.length > 100) {\n      this.alerts = this.alerts.slice(-100);\n    }\n    \n    this.emit('alert', alert);\n    \n    // Store alert in Redis\n    this.storeAlertInRedis(alert);\n  }\n\n  private async storeAlertInRedis(alert: PerformanceAlert) {\n    try {\n      await this.redis.lpush('performance:alerts', JSON.stringify(alert));\n      await this.redis.ltrim('performance:alerts', 0, 99); // Keep last 100\n    } catch (error) {\n      console.error('Failed to store alert in Redis:', error);\n    }\n  }\n\n  private async cleanupOldMetrics() {\n    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);\n    \n    this.metrics.forEach((metricArray, name) => {\n      const filteredMetrics = metricArray.filter(metric => metric.timestamp > oneHourAgo);\n      this.metrics.set(name, filteredMetrics);\n    });\n  }\n\n  public getMetrics(name?: string, since?: Date): PerformanceMetric[] {\n    if (name) {\n      const metrics = this.metrics.get(name) || [];\n      if (since) {\n        return metrics.filter(metric => metric.timestamp >= since);\n      }\n      return metrics;\n    }\n    \n    const allMetrics: PerformanceMetric[] = [];\n    this.metrics.forEach(metricArray => {\n      allMetrics.push(...metricArray);\n    });\n    \n    if (since) {\n      return allMetrics.filter(metric => metric.timestamp >= since);\n    }\n    \n    return allMetrics;\n  }\n\n  public getAlerts(resolved?: boolean): PerformanceAlert[] {\n    if (resolved !== undefined) {\n      return this.alerts.filter(alert => alert.resolved === resolved);\n    }\n    return this.alerts;\n  }\n\n  public resolveAlert(alertId: string): boolean {\n    const alert = this.alerts.find(a => a.id === alertId);\n    if (alert) {\n      alert.resolved = true;\n      this.emit('alertResolved', alert);\n      return true;\n    }\n    return false;\n  }\n\n  public getSystemMetrics(): SystemMetrics {\n    const latestMetrics = new Map<string, number>();\n    \n    this.metrics.forEach((metricArray, name) => {\n      if (metricArray.length > 0) {\n        const latest = metricArray[metricArray.length - 1];\n        latestMetrics.set(name, latest.value);\n      }\n    });\n    \n    return {\n      cpu: {\n        usage: latestMetrics.get('cpu_usage') || 0,\n        loadAverage: [latestMetrics.get('load_average_1m') || 0, 0, 0],\n        cores: os.cpus().length,\n      },\n      memory: {\n        used: (os.totalmem() - os.freemem()) / 1024 / 1024, // MB\n        free: os.freemem() / 1024 / 1024, // MB\n        total: os.totalmem() / 1024 / 1024, // MB\n        usage: latestMetrics.get('memory_usage') || 0,\n        heapUsed: latestMetrics.get('heap_used') || 0,\n        heapTotal: process.memoryUsage().heapTotal / 1024 / 1024, // MB\n      },\n      disk: {\n        usage: latestMetrics.get('disk_usage') || 0,\n        free: 0, // Would need proper implementation\n        total: 0, // Would need proper implementation\n      },\n      network: {\n        bytesIn: 0, // Would need proper implementation\n        bytesOut: 0, // Would need proper implementation\n      },\n    };\n  }\n\n  public getApplicationMetrics(): ApplicationMetrics {\n    const latestMetrics = new Map<string, number>();\n    \n    this.metrics.forEach((metricArray, name) => {\n      if (metricArray.length > 0) {\n        const latest = metricArray[metricArray.length - 1];\n        latestMetrics.set(name, latest.value);\n      }\n    });\n    \n    return {\n      requests: {\n        total: this.requestMetrics.count,\n        perSecond: latestMetrics.get('requests_per_second') || 0,\n        averageResponseTime: latestMetrics.get('average_response_time') || 0,\n        errorRate: latestMetrics.get('error_rate') || 0,\n      },\n      database: {\n        connections: latestMetrics.get('database_connections') || 0,\n        queryTime: 0, // Would need integration with database service\n        slowQueries: 0, // Would need integration with database service\n      },\n      cache: {\n        hitRate: latestMetrics.get('cache_hit_rate') || 0,\n        memoryUsage: latestMetrics.get('cache_memory_usage') || 0,\n        operations: 0, // Would need integration with cache service\n      },\n      websockets: {\n        connections: 0, // Would need integration with WebSocket service\n        messagesPerSecond: 0, // Would need integration with WebSocket service\n      },\n    };\n  }\n\n  public updateThresholds(newThresholds: Partial<PerformanceThresholds>) {\n    this.thresholds = { ...this.thresholds, ...newThresholds };\n  }\n\n  public async healthCheck(): Promise<{ status: string; metrics: any; alerts: number }> {\n    const systemMetrics = this.getSystemMetrics();\n    const appMetrics = this.getApplicationMetrics();\n    const unresolvedAlerts = this.getAlerts(false).length;\n    \n    let status = 'healthy';\n    \n    if (unresolvedAlerts > 0) {\n      const criticalAlerts = this.getAlerts(false).filter(a => a.severity === 'critical').length;\n      if (criticalAlerts > 0) {\n        status = 'critical';\n      } else {\n        status = 'warning';\n      }\n    }\n    \n    return {\n      status,\n      metrics: {\n        system: systemMetrics,\n        application: appMetrics,\n      },\n      alerts: unresolvedAlerts,\n    };\n  }\n\n  public stop() {\n    if (this.monitoringInterval) {\n      clearInterval(this.monitoringInterval);\n      this.monitoringInterval = null;\n    }\n    \n    if (this.performanceObserver) {\n      this.performanceObserver.disconnect();\n      this.performanceObserver = null;\n    }\n  }\n}\n\n// Singleton instance\nlet performanceMonitoringServiceInstance: PerformanceMonitoringService;\n\nexport const initializePerformanceMonitoringService = (\n  dbPool: Pool, \n  redis: Redis\n): PerformanceMonitoringService => {\n  if (!performanceMonitoringServiceInstance) {\n    performanceMonitoringServiceInstance = new PerformanceMonitoringService(dbPool, redis);\n  }\n  return performanceMonitoringServiceInstance;\n};\n\nexport const performanceMonitoringService = performanceMonitoringServiceInstance;\n\nexport default PerformanceMonitoringService;\nexport { PerformanceMetric, SystemMetrics, ApplicationMetrics, PerformanceAlert, PerformanceThresholds };"
+import { EventEmitter } from 'events';
+import { performance, PerformanceObserver } from 'perf_hooks';
+import { Pool } from 'pg';
+// import { Redis } from 'ioredis';
+import os from 'os';
+import process from 'process';
+
+interface PerformanceMetric {
+  name: string;
+  value: number;
+  unit: string;
+  timestamp: Date;
+  tags?: Record<string, string>;
+}
+
+interface SystemMetrics {
+  cpu: {
+    usage: number;
+    loadAverage: number[];
+    cores: number;
+  };
+  memory: {
+    used: number;
+    free: number;
+    total: number;
+    usage: number;
+    heapUsed: number;
+    heapTotal: number;
+  };
+  disk: {
+    usage: number;
+    free: number;
+    total: number;
+  };
+  network: {
+    bytesIn: number;
+    bytesOut: number;
+  };
+}
+
+interface ApplicationMetrics {
+  requests: {
+    total: number;
+    perSecond: number;
+    averageResponseTime: number;
+    errorRate: number;
+  };
+  database: {
+    connections: number;
+    queryTime: number;
+    slowQueries: number;
+  };
+  cache: {
+    hitRate: number;
+    memoryUsage: number;
+    operations: number;
+  };
+  websockets: {
+    connections: number;
+    messagesPerSecond: number;
+  };
+}
+
+interface PerformanceAlert {
+  id: string;
+  type: 'cpu' | 'memory' | 'disk' | 'response_time' | 'error_rate' | 'database' | 'cache';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  message: string;
+  value: number;
+  threshold: number;
+  timestamp: Date;
+  resolved: boolean;
+}
+
+interface PerformanceThresholds {
+  cpu: { warning: number; critical: number };
+  memory: { warning: number; critical: number };
+  disk: { warning: number; critical: number };
+  responseTime: { warning: number; critical: number };
+  errorRate: { warning: number; critical: number };
+  databaseConnections: { warning: number; critical: number };
+  cacheHitRate: { warning: number; critical: number };
+}
+
+class PerformanceMonitoringService extends EventEmitter {
+  private dbPool: Pool;
+  private redis: any;
+  private metrics: Map<string, PerformanceMetric[]> = new Map();
+  private alerts: PerformanceAlert[] = [];
+  private thresholds: PerformanceThresholds;
+  private monitoringInterval: NodeJS.Timeout | null = null;
+  private performanceObserver: PerformanceObserver | null = null;
+  private requestMetrics: {
+    count: number;
+    totalTime: number;
+    errors: number;
+    lastReset: number;
+  } = {
+    count: 0,
+    totalTime: 0,
+    errors: 0,
+    lastReset: Date.now(),
+  };
+
+  constructor(dbPool: Pool, redis: any) {
+    super();
+    this.dbPool = dbPool;
+    this.redis = redis;
+    
+    this.thresholds = {
+      cpu: { warning: 70, critical: 90 },
+      memory: { warning: 80, critical: 95 },
+      disk: { warning: 85, critical: 95 },
+      responseTime: { warning: 1000, critical: 3000 }, // milliseconds
+      errorRate: { warning: 5, critical: 10 }, // percentage
+      databaseConnections: { warning: 80, critical: 95 }, // percentage of max
+      cacheHitRate: { warning: 80, critical: 60 }, // percentage (lower is worse)
+    };
+    
+    this.setupPerformanceObserver();
+    this.startMonitoring();
+  }
+
+  private setupPerformanceObserver() {
+    this.performanceObserver = new PerformanceObserver((list) => {
+      const entries = list.getEntries();
+      
+      entries.forEach((entry) => {
+        this.recordMetric({
+          name: entry.name,
+          value: entry.duration,
+          unit: 'ms',
+          timestamp: new Date(),
+          tags: {
+            type: entry.entryType,
+          },
+        });
+      });
+    });
+    
+    this.performanceObserver.observe({ entryTypes: ['measure', 'measure', 'resource'] });
+  }
+
+  private startMonitoring() {
+    // Collect metrics every 30 seconds
+    this.monitoringInterval = setInterval(async () => {
+      await this.collectSystemMetrics();
+      await this.collectApplicationMetrics();
+      await this.checkThresholds();
+      await this.cleanupOldMetrics();
+    }, 30000);
+    
+    // Reset request metrics every minute
+    setInterval(() => {
+      this.resetRequestMetrics();
+    }, 60000);
+  }
+
+  public recordMetric(metric: PerformanceMetric) {
+    if (!this.metrics.has(metric.name)) {
+      this.metrics.set(metric.name, []);
+    }
+    
+    const metricArray = this.metrics.get(metric.name)!;
+    metricArray.push(metric);
+    
+    // Keep only last 1000 metrics per type
+    if (metricArray.length > 1000) {
+      metricArray.splice(0, metricArray.length - 1000);
+    }
+    
+    // Store in Redis for persistence
+    this.storeMetricInRedis(metric);
+  }
+
+  private async storeMetricInRedis(metric: PerformanceMetric) {
+    try {
+      const key = `metrics:${metric.name}:${Math.floor(metric.timestamp.getTime() / 60000)}`; // Per minute
+      await this.redis.lpush(key, JSON.stringify(metric));
+      await this.redis.expire(key, 86400); // Keep for 24 hours
+    } catch (error) {
+      console.error('Failed to store metric in Redis:', error);
+    }
+  }
+
+  public recordRequest(responseTime: number, isError: boolean = false) {
+    this.requestMetrics.count++;
+    this.requestMetrics.totalTime += responseTime;
+    
+    if (isError) {
+      this.requestMetrics.errors++;
+    }
+    
+    // Record individual request metric
+    this.recordMetric({
+      name: 'http_request_duration',
+      value: responseTime,
+      unit: 'ms',
+      timestamp: new Date(),
+      tags: {
+        status: isError ? 'error' : 'success',
+      },
+    });
+  }
+
+  private resetRequestMetrics() {
+    const now = Date.now();
+    const timeDiff = (now - this.requestMetrics.lastReset) / 1000; // seconds
+    
+    // Calculate rates
+    const requestsPerSecond = this.requestMetrics.count / timeDiff;
+    const averageResponseTime = this.requestMetrics.count > 0 
+      ? this.requestMetrics.totalTime / this.requestMetrics.count 
+      : 0;
+    const errorRate = this.requestMetrics.count > 0 
+      ? (this.requestMetrics.errors / this.requestMetrics.count) * 100 
+      : 0;
+    
+    // Record aggregated metrics
+    this.recordMetric({
+      name: 'requests_per_second',
+      value: requestsPerSecond,
+      unit: 'req/s',
+      timestamp: new Date(),
+    });
+    
+    this.recordMetric({
+      name: 'average_response_time',
+      value: averageResponseTime,
+      unit: 'ms',
+      timestamp: new Date(),
+    });
+    
+    this.recordMetric({
+      name: 'error_rate',
+      value: errorRate,
+      unit: '%',
+      timestamp: new Date(),
+    });
+    
+    // Reset counters
+    this.requestMetrics = {
+      count: 0,
+      totalTime: 0,
+      errors: 0,
+      lastReset: now,
+    };
+  }
+
+  private async collectSystemMetrics() {
+    try {
+      // CPU metrics
+      const cpuUsage = await this.getCPUUsage();
+      const loadAverage = os.loadavg();
+      
+      this.recordMetric({
+        name: 'cpu_usage',
+        value: cpuUsage,
+        unit: '%',
+        timestamp: new Date(),
+      });
+      
+      this.recordMetric({
+        name: 'load_average_1m',
+        value: loadAverage[0],
+        unit: 'load',
+        timestamp: new Date(),
+      });
+      
+      // Memory metrics
+      const memoryUsage = process.memoryUsage();
+      const totalMemory = os.totalmem();
+      const freeMemory = os.freemem();
+      const usedMemory = totalMemory - freeMemory;
+      const memoryUsagePercent = (usedMemory / totalMemory) * 100;
+      
+      this.recordMetric({
+        name: 'memory_usage',
+        value: memoryUsagePercent,
+        unit: '%',
+        timestamp: new Date(),
+      });
+      
+      this.recordMetric({
+        name: 'heap_used',
+        value: memoryUsage.heapUsed / 1024 / 1024, // MB
+        unit: 'MB',
+        timestamp: new Date(),
+      });
+      
+      // Disk metrics (simplified - would need more sophisticated implementation for production)
+      const diskUsage = await this.getDiskUsage();
+      this.recordMetric({
+        name: 'disk_usage',
+        value: diskUsage,
+        unit: '%',
+        timestamp: new Date(),
+      });
+      
+    } catch (error) {
+      console.error('Failed to collect system metrics:', error);
+    }
+  }
+
+  private async collectApplicationMetrics() {
+    try {
+      // Database metrics
+      const dbStats = {
+        totalConnections: this.dbPool.totalCount,
+        idleConnections: this.dbPool.idleCount,
+        waitingClients: this.dbPool.waitingCount,
+        maxConnections: this.dbPool.options.max || 20,
+      };
+      
+      const connectionUsage = (dbStats.totalConnections / dbStats.maxConnections) * 100;
+      
+      this.recordMetric({
+        name: 'database_connections',
+        value: connectionUsage,
+        unit: '%',
+        timestamp: new Date(),
+      });
+      
+      this.recordMetric({
+        name: 'database_waiting_clients',
+        value: dbStats.waitingClients,
+        unit: 'count',
+        timestamp: new Date(),
+      });
+      
+      // Cache metrics
+      const cacheInfo = await this.redis.info('memory');
+      const cacheStats = this.parseCacheInfo(cacheInfo);
+      
+      this.recordMetric({
+        name: 'cache_memory_usage',
+        value: cacheStats.usedMemory / 1024 / 1024, // MB
+        unit: 'MB',
+        timestamp: new Date(),
+      });
+      
+      // Get cache hit rate from our cache service if available
+      const cacheHitRate = await this.getCacheHitRate();
+      if (cacheHitRate !== null) {
+        this.recordMetric({
+          name: 'cache_hit_rate',
+          value: cacheHitRate,
+          unit: '%',
+          timestamp: new Date(),
+        });
+      }
+      
+    } catch (error) {
+      console.error('Failed to collect application metrics:', error);
+    }
+  }
+
+  private async getCPUUsage(): Promise<number> {
+    return new Promise((resolve) => {
+      const startUsage = process.cpuUsage();
+      const startTime = process.hrtime();
+      
+      setTimeout(() => {
+        const endUsage = process.cpuUsage(startUsage);
+        const endTime = process.hrtime(startTime);
+        
+        const totalTime = endTime[0] * 1000000 + endTime[1] / 1000; // microseconds
+        const cpuTime = endUsage.user + endUsage.system;
+        const cpuUsage = (cpuTime / totalTime) * 100;
+        
+        resolve(Math.min(cpuUsage, 100)); // Cap at 100%
+      }, 100);
+    });
+  }
+
+  private async getDiskUsage(): Promise<number> {
+    // Simplified disk usage - in production, you'd want to use a proper library
+    // like 'node-disk-info' or similar
+    try {
+      const { execSync } = require('child_process');
+      const output = execSync('df -h /', { encoding: 'utf8' });
+      const lines = output.split('\n');
+      if (lines.length > 1) {
+        const parts = lines[1].split(/\s+/);
+        const usagePercent = parseInt(parts[4].replace('%', ''));
+        return usagePercent;
+      }
+    } catch (error) {
+      console.error('Failed to get disk usage:', error);
+    }
+    return 0;
+  }
+
+  private parseCacheInfo(info: string): { usedMemory: number; maxMemory: number } {
+    const lines = info.split('\r\n');
+    let usedMemory = 0;
+    let maxMemory = 0;
+    
+    lines.forEach(line => {
+      if (line.startsWith('used_memory:')) {
+        usedMemory = parseInt(line.split(':')[1]);
+      } else if (line.startsWith('maxmemory:')) {
+        maxMemory = parseInt(line.split(':')[1]);
+      }
+    });
+    
+    return { usedMemory, maxMemory };
+  }
+
+  private async getCacheHitRate(): Promise<number | null> {
+    try {
+      const stats = await this.redis.hgetall('cache:stats');
+      if (stats && stats.hitRate) {
+        return parseFloat(stats.hitRate);
+      }
+    } catch (error) {
+      console.error('Failed to get cache hit rate:', error);
+    }
+    return null;
+  }
+
+  private async checkThresholds() {
+    // Get latest metrics
+    const latestMetrics = new Map<string, number>();
+    
+    this.metrics.forEach((metricArray, name) => {
+      if (metricArray.length > 0) {
+        const latest = metricArray[metricArray.length - 1];
+        latestMetrics.set(name, latest.value);
+      }
+    });
+    
+    // Check CPU usage
+    const cpuUsage = latestMetrics.get('cpu_usage');
+    if (cpuUsage !== undefined) {
+      if (cpuUsage > this.thresholds.cpu.critical) {
+        this.createAlert('cpu', 'critical', `CPU usage is critically high: ${cpuUsage.toFixed(1)}%`, cpuUsage, this.thresholds.cpu.critical);
+      } else if (cpuUsage > this.thresholds.cpu.warning) {
+        this.createAlert('cpu', 'high', `CPU usage is high: ${cpuUsage.toFixed(1)}%`, cpuUsage, this.thresholds.cpu.warning);
+      }
+    }
+    
+    // Check memory usage
+    const memoryUsage = latestMetrics.get('memory_usage');
+    if (memoryUsage !== undefined) {
+      if (memoryUsage > this.thresholds.memory.critical) {
+        this.createAlert('memory', 'critical', `Memory usage is critically high: ${memoryUsage.toFixed(1)}%`, memoryUsage, this.thresholds.memory.critical);
+      } else if (memoryUsage > this.thresholds.memory.warning) {
+        this.createAlert('memory', 'high', `Memory usage is high: ${memoryUsage.toFixed(1)}%`, memoryUsage, this.thresholds.memory.warning);
+      }
+    }
+    
+    // Check response time
+    const responseTime = latestMetrics.get('average_response_time');
+    if (responseTime !== undefined) {
+      if (responseTime > this.thresholds.responseTime.critical) {
+        this.createAlert('response_time', 'critical', `Response time is critically slow: ${responseTime.toFixed(0)}ms`, responseTime, this.thresholds.responseTime.critical);
+      } else if (responseTime > this.thresholds.responseTime.warning) {
+        this.createAlert('response_time', 'high', `Response time is slow: ${responseTime.toFixed(0)}ms`, responseTime, this.thresholds.responseTime.warning);
+      }
+    }
+    
+    // Check error rate
+    const errorRate = latestMetrics.get('error_rate');
+    if (errorRate !== undefined) {
+      if (errorRate > this.thresholds.errorRate.critical) {
+        this.createAlert('error_rate', 'critical', `Error rate is critically high: ${errorRate.toFixed(1)}%`, errorRate, this.thresholds.errorRate.critical);
+      } else if (errorRate > this.thresholds.errorRate.warning) {
+        this.createAlert('error_rate', 'high', `Error rate is high: ${errorRate.toFixed(1)}%`, errorRate, this.thresholds.errorRate.warning);
+      }
+    }
+    
+    // Check database connections
+    const dbConnections = latestMetrics.get('database_connections');
+    if (dbConnections !== undefined) {
+      if (dbConnections > this.thresholds.databaseConnections.critical) {
+        this.createAlert('database', 'critical', `Database connection usage is critically high: ${dbConnections.toFixed(1)}%`, dbConnections, this.thresholds.databaseConnections.critical);
+      } else if (dbConnections > this.thresholds.databaseConnections.warning) {
+        this.createAlert('database', 'high', `Database connection usage is high: ${dbConnections.toFixed(1)}%`, dbConnections, this.thresholds.databaseConnections.warning);
+      }
+    }
+    
+    // Check cache hit rate (lower is worse)
+    const cacheHitRate = latestMetrics.get('cache_hit_rate');
+    if (cacheHitRate !== undefined) {
+      if (cacheHitRate < this.thresholds.cacheHitRate.critical) {
+        this.createAlert('cache', 'critical', `Cache hit rate is critically low: ${cacheHitRate.toFixed(1)}%`, cacheHitRate, this.thresholds.cacheHitRate.critical);
+      } else if (cacheHitRate < this.thresholds.cacheHitRate.warning) {
+        this.createAlert('cache', 'medium', `Cache hit rate is low: ${cacheHitRate.toFixed(1)}%`, cacheHitRate, this.thresholds.cacheHitRate.warning);
+      }
+    }
+  }
+
+  private createAlert(
+    type: PerformanceAlert['type'],
+    severity: PerformanceAlert['severity'],
+    message: string,
+    value: number,
+    threshold: number
+  ) {
+    // Check if similar alert already exists and is not resolved
+    const existingAlert = this.alerts.find(alert => 
+      alert.type === type && 
+      alert.severity === severity && 
+      !alert.resolved &&
+      Date.now() - alert.timestamp.getTime() < 300000 // 5 minutes
+    );
+    
+    if (existingAlert) {
+      return; // Don't create duplicate alerts
+    }
+    
+    const alert: PerformanceAlert = {
+      id: `${type}_${severity}_${Date.now()}`,
+      type,
+      severity,
+      message,
+      value,
+      threshold,
+      timestamp: new Date(),
+      resolved: false,
+    };
+    
+    this.alerts.push(alert);
+    
+    // Keep only last 100 alerts
+    if (this.alerts.length > 100) {
+      this.alerts = this.alerts.slice(-100);
+    }
+    
+    this.emit('alert', alert);
+    
+    // Store alert in Redis
+    this.storeAlertInRedis(alert);
+  }
+
+  private async storeAlertInRedis(alert: PerformanceAlert) {
+    try {
+      await this.redis.lpush('performance:alerts', JSON.stringify(alert));
+      await this.redis.ltrim('performance:alerts', 0, 99); // Keep last 100
+    } catch (error) {
+      console.error('Failed to store alert in Redis:', error);
+    }
+  }
+
+  private async cleanupOldMetrics() {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    
+    this.metrics.forEach((metricArray, name) => {
+      const filteredMetrics = metricArray.filter(metric => metric.timestamp > oneHourAgo);
+      this.metrics.set(name, filteredMetrics);
+    });
+  }
+
+  public getMetrics(name?: string, since?: Date): PerformanceMetric[] {
+    if (name) {
+      const metrics = this.metrics.get(name) || [];
+      if (since) {
+        return metrics.filter(metric => metric.timestamp >= since);
+      }
+      return metrics;
+    }
+    
+    const allMetrics: PerformanceMetric[] = [];
+    this.metrics.forEach(metricArray => {
+      allMetrics.push(...metricArray);
+    });
+    
+    if (since) {
+      return allMetrics.filter(metric => metric.timestamp >= since);
+    }
+    
+    return allMetrics;
+  }
+
+  public getAlerts(resolved?: boolean): PerformanceAlert[] {
+    if (resolved !== undefined) {
+      return this.alerts.filter(alert => alert.resolved === resolved);
+    }
+    return this.alerts;
+  }
+
+  public resolveAlert(alertId: string): boolean {
+    const alert = this.alerts.find(a => a.id === alertId);
+    if (alert) {
+      alert.resolved = true;
+      this.emit('alertResolved', alert);
+      return true;
+    }
+    return false;
+  }
+
+  public getSystemMetrics(): SystemMetrics {
+    const latestMetrics = new Map<string, number>();
+    
+    this.metrics.forEach((metricArray, name) => {
+      if (metricArray.length > 0) {
+        const latest = metricArray[metricArray.length - 1];
+        latestMetrics.set(name, latest.value);
+      }
+    });
+    
+    return {
+      cpu: {
+        usage: latestMetrics.get('cpu_usage') || 0,
+        loadAverage: [latestMetrics.get('load_average_1m') || 0, 0, 0],
+        cores: os.cpus().length,
+      },
+      memory: {
+        used: (os.totalmem() - os.freemem()) / 1024 / 1024, // MB
+        free: os.freemem() / 1024 / 1024, // MB
+        total: os.totalmem() / 1024 / 1024, // MB
+        usage: latestMetrics.get('memory_usage') || 0,
+        heapUsed: latestMetrics.get('heap_used') || 0,
+        heapTotal: process.memoryUsage().heapTotal / 1024 / 1024, // MB
+      },
+      disk: {
+        usage: latestMetrics.get('disk_usage') || 0,
+        free: 0, // Would need proper implementation
+        total: 0, // Would need proper implementation
+      },
+      network: {
+        bytesIn: 0, // Would need proper implementation
+        bytesOut: 0, // Would need proper implementation
+      },
+    };
+  }
+
+  public getApplicationMetrics(): ApplicationMetrics {
+    const latestMetrics = new Map<string, number>();
+    
+    this.metrics.forEach((metricArray, name) => {
+      if (metricArray.length > 0) {
+        const latest = metricArray[metricArray.length - 1];
+        latestMetrics.set(name, latest.value);
+      }
+    });
+    
+    return {
+      requests: {
+        total: this.requestMetrics.count,
+        perSecond: latestMetrics.get('requests_per_second') || 0,
+        averageResponseTime: latestMetrics.get('average_response_time') || 0,
+        errorRate: latestMetrics.get('error_rate') || 0,
+      },
+      database: {
+        connections: latestMetrics.get('database_connections') || 0,
+        queryTime: 0, // Would need integration with database service
+        slowQueries: 0, // Would need integration with database service
+      },
+      cache: {
+        hitRate: latestMetrics.get('cache_hit_rate') || 0,
+        memoryUsage: latestMetrics.get('cache_memory_usage') || 0,
+        operations: 0, // Would need integration with cache service
+      },
+      websockets: {
+        connections: 0, // Would need integration with WebSocket service
+        messagesPerSecond: 0, // Would need integration with WebSocket service
+      },
+    };
+  }
+
+  public updateThresholds(newThresholds: Partial<PerformanceThresholds>) {
+    this.thresholds = { ...this.thresholds, ...newThresholds };
+  }
+
+  public async healthCheck(): Promise<{ status: string; metrics: any; alerts: number }> {
+    const systemMetrics = this.getSystemMetrics();
+    const appMetrics = this.getApplicationMetrics();
+    const unresolvedAlerts = this.getAlerts(false).length;
+    
+    let status = 'healthy';
+    
+    if (unresolvedAlerts > 0) {
+      const criticalAlerts = this.getAlerts(false).filter(a => a.severity === 'critical').length;
+      if (criticalAlerts > 0) {
+        status = 'critical';
+      } else {
+        status = 'warning';
+      }
+    }
+    
+    return {
+      status,
+      metrics: {
+        system: systemMetrics,
+        application: appMetrics,
+      },
+      alerts: unresolvedAlerts,
+    };
+  }
+
+  public stop() {
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+      this.monitoringInterval = null;
+    }
+    
+    if (this.performanceObserver) {
+      this.performanceObserver.disconnect();
+      this.performanceObserver = null;
+    }
+  }
+}
+
+// Singleton instance
+let performanceMonitoringServiceInstance: PerformanceMonitoringService;
+
+export const initializePerformanceMonitoringService = (
+  dbPool: Pool, 
+  redis: any
+): PerformanceMonitoringService => {
+  if (!performanceMonitoringServiceInstance) {
+    performanceMonitoringServiceInstance = new PerformanceMonitoringService(dbPool, redis);
+  }
+  return performanceMonitoringServiceInstance;
+};
+
+export const performanceMonitoringService = null;
+
+export default PerformanceMonitoringService;
+export { PerformanceMetric, SystemMetrics, ApplicationMetrics, PerformanceAlert, PerformanceThresholds };

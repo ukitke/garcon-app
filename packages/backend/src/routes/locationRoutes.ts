@@ -7,18 +7,18 @@ export function createLocationRoutes(locationController: LocationController): Ro
   const router = Router();
 
   // Public routes (no authentication required)
-  router.get('/nearby', rateLimitMiddleware, locationController.detectNearbyLocations);
-  router.get('/:locationId', rateLimitMiddleware, locationController.getLocationById);
-  router.get('/:locationId/tables', rateLimitMiddleware, locationController.getLocationTables);
+  router.get('/nearby', rateLimitMiddleware.api, locationController.detectNearbyLocations);
+  router.get('/:locationId', rateLimitMiddleware.api, locationController.getLocationById);
+  router.get('/:locationId/tables', rateLimitMiddleware.api, locationController.getLocationTables);
 
   // Protected routes (authentication required)
-  router.post('/:locationId/checkin', authMiddleware, rateLimitMiddleware, locationController.checkinToTable);
-  router.get('/tables/:tableId/session', authMiddleware, rateLimitMiddleware, locationController.getTableSession);
-  router.post('/sessions/:sessionId/end', authMiddleware, rateLimitMiddleware, locationController.endTableSession);
+  router.post('/:locationId/checkin', authMiddleware, rateLimitMiddleware.api, locationController.checkinToTable);
+  router.get('/tables/:tableId/session', authMiddleware, rateLimitMiddleware.api, locationController.getTableSession);
+  router.post('/sessions/:sessionId/end', authMiddleware, rateLimitMiddleware.api, locationController.endTableSession);
 
   // Owner-only routes
-  router.post('/', authMiddleware, rateLimitMiddleware, locationController.createLocation);
-  router.put('/:locationId', authMiddleware, rateLimitMiddleware, locationController.updateLocation);
+  router.post('/', authMiddleware, rateLimitMiddleware.api, locationController.createLocation);
+  router.put('/:locationId', authMiddleware, rateLimitMiddleware.api, locationController.updateLocation);
 
   return router;
 }

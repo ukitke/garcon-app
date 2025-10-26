@@ -152,10 +152,11 @@ export class LocationService {
           createdAt: row.createdAt,
           currentSession: row.sessionId ? {
             id: row.sessionId,
-            tableId: row.id,
+            tableId: row.tableId,
             startTime: row.sessionStartTime,
             endTime: row.sessionEndTime,
             isActive: row.sessionIsActive,
+            createdAt: row.sessionStartTime || new Date(),
             participants: []
           } : undefined
         });

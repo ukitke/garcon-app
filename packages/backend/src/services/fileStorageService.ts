@@ -37,7 +37,7 @@ export class FileStorageService {
     }
   }
 
-  async uploadMenuImage(file: Express.Multer.File): Promise<FileUploadResult> {
+  async uploadMenuImage(file: any): Promise<FileUploadResult> {
     // In production, this would upload to S3
     // For now, we'll just return the local file path
     const filename = this.generateUniqueFilename(file.originalname);
@@ -59,7 +59,7 @@ export class FileStorageService {
   }
 
   // Future S3 implementation would go here
-  async uploadToS3(file: Express.Multer.File, bucket: string, key: string): Promise<FileUploadResult> {
+  async uploadToS3(file: any, bucket: string, key: string): Promise<FileUploadResult> {
     // TODO: Implement S3 upload using AWS SDK
     // This is a placeholder for future S3 integration
     throw new Error('S3 upload not implemented yet');

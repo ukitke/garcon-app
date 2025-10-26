@@ -14,4 +14,6 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+// Export getPool function for backward compatibility
+export const getPool = () => pool;
 export default pool;

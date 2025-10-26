@@ -176,7 +176,7 @@ export class OrderService {
     `;
 
     const result = await this.pool.query(query, [orderId]);
-    return result.rowCount > 0;
+    return (result.rowCount || 0) > 0;
   }
 
   // Shopping cart functionality
@@ -225,13 +225,13 @@ export class OrderService {
       const deleteQuery = `DELETE FROM order_items WHERE id = $1`;
       const result = await client.query(deleteQuery, [orderItemId]);
 
-      if (result.rowCount > 0) {
+      if ((result.rowCount || 0) > 0) {
         // Recalculate order totals
         await this.recalculateOrderTotals(client, orderId);
       }
 
       await client.query('COMMIT');
-      return result.rowCount > 0;
+      return (result.rowCount || 0) > 0;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -485,7 +485,7 @@ export class OrderService {
     `;
     const itemsResult = await client.query(itemsQuery, [orderId]);
     
-    const subtotal = itemsResult.rows.reduce((sum, item) => sum + parseFloat(item.total_price), 0);
+    const subtotal = itemsResult.rows.reduce((sum: number, item: any) => sum + parseFloat(item.total_price), 0);
     const taxRate = 0.10; // 10% tax rate
     const taxAmount = subtotal * taxRate;
     const totalAmount = subtotal + taxAmount;

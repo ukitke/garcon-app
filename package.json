@@ -26,11 +26,18 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
+    "deploy:railway": "node deploy-to-railway.js",
+    "deploy:railway:quick": "quick-railway-deploy.bat",
+    "test:railway": "node test-railway-deployment.js",
+    "railway:logs": "railway logs",
+    "railway:status": "railway status",
+    "railway:restart": "railway restart",
     "prepare": "husky install"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "axios": "^1.12.2",
     "concurrently": "^8.2.0",
     "eslint": "^8.45.0",
     "eslint-config-prettier": "^8.8.0",

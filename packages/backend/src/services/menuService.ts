@@ -101,7 +101,7 @@ export class MenuService {
     `;
 
     const result = await this.pool.query(query, [categoryId, locationId]);
-    return result.rowCount > 0;
+    return (result.rowCount || 0) > 0;
   }
 
   // Menu Items
@@ -286,7 +286,7 @@ export class MenuService {
     `;
 
     const result = await this.pool.query(query, [itemId, locationId]);
-    return result.rowCount > 0;
+    return (result.rowCount || 0) > 0;
   }
 
   // Private helper methods

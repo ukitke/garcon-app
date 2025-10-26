@@ -549,7 +549,15 @@ export class PremiumAnalyticsController {
       // Filter sections if specified
       let exportData = analytics;
       if (sections && Array.isArray(sections)) {
-        exportData = {};
+        exportData = {
+          customerBehavior: {},
+          businessInsights: {},
+          seasonalTrends: {},
+          menuOptimization: {},
+          operationalEfficiency: {},
+          predictiveAnalytics: {},
+          customReports: {}
+        } as any;
         sections.forEach(section => {
           if (analytics[section as keyof typeof analytics]) {
             (exportData as any)[section] = analytics[section as keyof typeof analytics];

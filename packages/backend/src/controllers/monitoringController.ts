@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import { monitoringService } from '../services/monitoringService';
+import MonitoringService from '../services/monitoringService';
+
+const monitoringService = new MonitoringService();
 import { AlertRule } from '../types/analytics';
 
 export class MonitoringController {
@@ -113,24 +115,23 @@ export class MonitoringController {
 
   async createAlertRule(req: Request, res: Response): Promise<void> {
     try {
-      const { name, metric, condition, threshold, recipients, frequency } = req.body;
+      const { name, condition, threshold, recipients, frequency } = req.body;
 
-      if (!name || !metric || !condition || threshold === undefined) {
+      if (!name || !condition || threshold === undefined) {
         res.status(400).json({
           success: false,
-          error: 'Name, metric, condition, and threshold are required'
+          error: 'Name, condition, and threshold are required'
         });
         return;
       }
 
       const rule: Omit<AlertRule, 'id'> = {
         name,
-        metric,
         condition,
         threshold: parseFloat(threshold),
         isActive: true,
-        recipients: recipients || [],
-        frequency: frequency || 'hourly'
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
 
       const newRule = await monitoringService.createAlertRule(rule);
@@ -261,7 +262,8 @@ export class MonitoringController {
 
   async getMetricsTrends(req: Request, res: Response): Promise<void> {
     try {
-      const { metric, period = '24h' } = req.query;
+      const { period = '24h' } = req.query;
+      const metric = req.query.metric as string;
       
       if (!metric) {
         res.status(400).json({

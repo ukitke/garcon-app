@@ -230,7 +230,7 @@ export class MenuController {
     try {
       const { locationId, itemId } = req.params;
       
-      if (!req.file) {
+      if (!(req as any).file) {
         res.status(400).json({
           success: false,
           error: 'No image file provided'
@@ -239,7 +239,7 @@ export class MenuController {
       }
 
       // Upload image using file storage service
-      const uploadResult = await fileStorageService.uploadMenuImage(req.file);
+      const uploadResult = await fileStorageService.uploadMenuImage((req as any).file);
       
       const item = await menuService.updateMenuItemImage(itemId, locationId, uploadResult.url);
       

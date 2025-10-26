@@ -321,7 +321,7 @@ export class ReservationService {
       throw new Error('Reservation settings not found for location');
     }
 
-    const dayOfWeek = new Date(date).toLocaleLowerCase();
+    const dayOfWeek = new Date(date).toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
     const operatingHours = settings.operating_hours[dayOfWeek];
 
     if (!operatingHours || !operatingHours.isOpen) {

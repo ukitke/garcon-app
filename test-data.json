@@ -1,0 +1,86 @@
+{
+  "users": [
+    {
+      "name": "Mario Rossi",
+      "email": "mario@test.com",
+      "phone": "+39 123 456 7890",
+      "password": "password123"
+    },
+    {
+      "name": "Giulia Bianchi",
+      "email": "giulia@test.com",
+      "phone": "+39 098 765 4321",
+      "password": "password123"
+    }
+  ],
+  "restaurants": [
+    {
+      "name": "Ristorante Da Mario",
+      "address": "Via Roma 123, Milano",
+      "latitude": 45.4642,
+      "longitude": 9.19,
+      "tables": [
+        "T001",
+        "T002",
+        "T003",
+        "T004",
+        "T005"
+      ]
+    },
+    {
+      "name": "Pizzeria Bella Napoli",
+      "address": "Corso Buenos Aires 456, Milano",
+      "latitude": 45.4777,
+      "longitude": 9.2052,
+      "tables": [
+        "T101",
+        "T102",
+        "T103"
+      ]
+    }
+  ],
+  "menuItems": [
+    {
+      "name": "Margherita Pizza",
+      "description": "Pomodoro, mozzarella, basilico",
+      "price": 8.5,
+      "category": "Pizza"
+    },
+    {
+      "name": "Spaghetti Carbonara",
+      "description": "Pasta con uova, pancetta, pecorino",
+      "price": 12,
+      "category": "Pasta"
+    },
+    {
+      "name": "Tiramisu",
+      "description": "Dolce tradizionale italiano",
+      "price": 6,
+      "category": "Dessert"
+    }
+  ],
+  "testScenarios": [
+    {
+      "name": "Happy Path Order",
+      "steps": [
+        "Register new user",
+        "Login",
+        "Select restaurant",
+        "Choose table T001",
+        "Add Margherita Pizza to cart",
+        "Proceed to payment",
+        "Complete order"
+      ]
+    },
+    {
+      "name": "Group Order",
+      "steps": [
+        "User 1 creates table session",
+        "User 2 joins with fantasy name",
+        "Both users add items",
+        "Split payment",
+        "Complete orders"
+      ]
+    }
+  ]
+}

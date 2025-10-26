@@ -1,55 +1,53 @@
-// Simple logger for development without complex dependencies
-const isDevelopment = process.env.NODE_ENV === 'development';
+// Simple logger for development to avoid complex dependencies
+interface LogLevel {
+  ERROR: number;
+  WARN: number;
+  INFO: number;
+  DEBUG: number;
+}
 
-const logger = {
-  info: (message: string, meta?: any) => {
-    console.log(`[INFO] ${message}`, meta ? JSON.stringify(meta, null, 2) : '');
-  },
-  
-  error: (message: string, meta?: any) => {
-    console.error(`[ERROR] ${message}`, meta ? JSON.stringify(meta, null, 2) : '');
-  },
-  
-  warn: (message: string, meta?: any) => {
-    console.warn(`[WARN] ${message}`, meta ? JSON.stringify(meta, null, 2) : '');
-  },
-  
-  debug: (message: string, meta?: any) => {
-    if (isDevelopment) {
-      console.log(`[DEBUG] ${message}`, meta ? JSON.stringify(meta, null, 2) : '');
-    }
-  },
-  
-  http: (message: string, meta?: any) => {
-    if (isDevelopment) {
-      console.log(`[HTTP] ${message}`, meta ? JSON.stringify(meta, null, 2) : '');
+const LOG_LEVELS: LogLevel = {
+  ERROR: 0,
+  WARN: 1,
+  INFO: 2,
+  DEBUG: 3,
+};
+
+class SimpleLogger {
+  private level: number;
+
+  constructor() {
+    const envLevel = process.env.LOG_LEVEL?.toUpperCase() || 'INFO';
+    this.level = LOG_LEVELS[envLevel as keyof LogLevel] || LOG_LEVELS.INFO;
+  }
+
+  private log(level: keyof LogLevel, message: string, meta?: any) {
+    if (LOG_LEVELS[level] <= this.level) {
+      const timestamp = new Date().toISOString();
+      const logMessage = meta 
+        ? `[${timestamp}] ${level}: ${message} ${JSON.stringify(meta)}`
+        : `[${timestamp}] ${level}: ${message}`;
+      
+      console.log(logMessage);
     }
   }
-};
 
-// Helper functions for structured logging
-export const logRequest = (req: any, res: any, responseTime?: number) => {
-  const logData = {
-    method: req.method,
-    url: req.url,
-    statusCode: res.statusCode,
-    responseTime: responseTime ? `${responseTime}ms` : undefined,
-  };
-
-  if (res.statusCode >= 400) {
-    logger.warn('HTTP Request', logData);
-  } else {
-    logger.http('HTTP Request', logData);
+  error(message: string, meta?: any) {
+    this.log('ERROR', message, meta);
   }
-};
 
-export const logError = (error: Error, context?: any) => {
-  logger.error('Application Error', {
-    message: error.message,
-    stack: error.stack,
-    name: error.name,
-    ...context,
-  });
-};
+  warn(message: string, meta?: any) {
+    this.log('WARN', message, meta);
+  }
 
+  info(message: string, meta?: any) {
+    this.log('INFO', message, meta);
+  }
+
+  debug(message: string, meta?: any) {
+    this.log('DEBUG', message, meta);
+  }
+}
+
+const logger = new SimpleLogger();
 export default logger;

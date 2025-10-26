@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+// import { v4 as uuidv4 } from 'uuid';
+const uuidv4 = () => Math.random().toString(36).substr(2, 9);
 import logger, { logRequest } from '../config/logger';
-import { monitoringService } from '../services/monitoringService';
+// import MonitoringService from '../services/monitoringService';
 
 // Extend Request interface to include custom properties
 declare global {
@@ -45,20 +46,17 @@ export const httpLoggingMiddleware = (req: Request, res: Response, next: NextFun
   });
 
   // Override res.end to capture response
-  const originalEnd = res.end;
-  res.end = function(chunk?: any, encoding?: any) {
-    const responseTime = Date.now() - startTime;
-    
-    // Log response
-    logRequest(req, res, responseTime);
-    
-    // Track metrics
-    const endpoint = req.route?.path || req.url;
-    monitoringService.trackApiRequest(endpoint, req.method, res.statusCode, responseTime);
-    
-    // Call original end method
-    originalEnd.call(this, chunk, encoding);
-  };
+  
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        logger.info('HTTP Request', {
+          method: req.method,
+          url: req.url,
+          statusCode: res.statusCode,
+          duration: `${duration}ms`,
+          requestId: (req as any).requestId
+        });
+        next();
 
   next();
 };
@@ -138,7 +136,7 @@ export const databaseLoggingMiddleware = {
       });
       
       // Track error metric
-      monitoringService.trackDatabaseOperation('query', duration || 0, false);
+      // monitoringService.trackDatabaseOperation('query', duration || 0, false);
     } else {
       if (duration && duration > 1000) {
         logger.warn('Slow Database Query', logData);
@@ -148,7 +146,7 @@ export const databaseLoggingMiddleware = {
       
       // Track success metric
       if (duration) {
-        monitoringService.trackDatabaseOperation('query', duration, true);
+        // monitoringService.trackDatabaseOperation('query', duration, true);
       }
     }
   },
@@ -214,7 +212,7 @@ export const performanceMiddleware = (req: Request, res: Response, next: NextFun
     
     // Track performance metrics
     const endpoint = req.route?.path || req.url;
-    monitoringService.trackApiRequest(endpoint, req.method, res.statusCode, duration);
+    // monitoringService.trackApiRequest(endpoint, req.method, res.statusCode, duration);
   });
   
   next();

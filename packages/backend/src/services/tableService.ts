@@ -155,13 +155,14 @@ export class TableService {
       isActive: row.isActive,
       createdAt: row.createdAt,
       currentSession: row.sessionId ? {
-        id: row.sessionId,
-        tableId: row.id,
-        startTime: row.sessionStartTime,
-        endTime: row.sessionEndTime,
-        isActive: row.sessionIsActive,
-        participants: []
-      } : undefined
+            id: row.sessionId,
+            tableId: row.tableId,
+            startTime: row.sessionStartTime,
+            endTime: row.sessionEndTime,
+            isActive: row.sessionIsActive,
+            createdAt: row.sessionStartTime || new Date(),
+            participants: []
+          } : undefined
     };
   }
 
@@ -363,13 +364,14 @@ export class TableService {
       isActive: row.isActive,
       createdAt: row.createdAt,
       currentSession: row.sessionId ? {
-        id: row.sessionId,
-        tableId: row.id,
-        startTime: row.sessionStartTime,
-        endTime: row.sessionEndTime,
-        isActive: row.sessionIsActive,
-        participants: [] // Will be populated separately if needed
-      } : undefined
+            id: row.sessionId,
+            tableId: row.tableId,
+            startTime: row.sessionStartTime,
+            endTime: row.sessionEndTime,
+            isActive: row.sessionIsActive,
+            createdAt: row.sessionStartTime || new Date(),
+            participants: []
+          } : undefined
     }));
   }
 
@@ -408,7 +410,7 @@ export class TableService {
       
       await client.query('COMMIT');
       
-      return deleteResult.rowCount > 0;
+      return (deleteResult.rowCount || 0) > 0;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
