@@ -1,0 +1,25 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Installa dipendenze di sistema
+RUN apk add --no-cache curl
+
+# Copia package files del backend
+COPY packages/backend/package*.json ./
+
+# Installa solo le dipendenze essenziali
+RUN npm install express cors --production
+
+# Copia solo il file JavaScript semplice
+COPY packages/backend/src/index-ultra-simple.js ./src/
+
+# Esponi porta
+EXPOSE 3000
+
+# Health check molto permissivo
+HEALTHCHECK --interval=60s --timeout=30s --start-period=60s --retries=5 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+# Avvia con logging completo
+CMD ["node", "src/index-ultra-simple.js"]

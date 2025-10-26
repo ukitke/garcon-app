@@ -1,0 +1,16 @@
+{
+  "name": "@garcon/backend-minimal",
+  "version": "1.0.0",
+  "description": "Minimal Garçon backend for Railway",
+  "main": "src/index-ultra-simple.js",
+  "scripts": {
+    "start": "node src/index-ultra-simple.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -45,14 +45,17 @@ app.use(express.urlencoded({ extended: true }));
 
 // Simple health check endpoints
 app.get('/health', (req, res) => {
-  res.status(200).json({
+  console.log('✅ Health check requested at', new Date().toISOString());
+  const healthData = {
     status: 'OK',
     timestamp: new Date().toISOString(),
     service: 'garcon-backend',
     version: process.env.npm_package_version || '1.0.0',
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development'
-  });
+  };
+  console.log('📊 Health data:', JSON.stringify(healthData, null, 2));
+  res.status(200).json(healthData);
 });
 
 app.get('/api/health', (req, res) => {
