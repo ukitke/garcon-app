@@ -11,11 +11,8 @@ COPY packages/backend/package*.json ./
 # Installa dipendenze
 RUN npm install --production
 
-# Installa ts-node e typescript globalmente
-RUN npm install -g ts-node typescript
-
-# Copia codice sorgente del backend
-COPY packages/backend/src ./src
+# Copia solo il file JavaScript diretto
+COPY packages/backend/src/index-railway-direct.js ./src/
 
 # Esponi porta
 EXPOSE 3000
@@ -24,5 +21,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-# Avvia applicazione
-CMD ["ts-node", "src/index-simple.ts"]
+# Avvia direttamente con Node.js
+CMD ["node", "src/index-railway-direct.js"]
