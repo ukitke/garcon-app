@@ -1,81 +1,134 @@
-# Garçon App
+# 🍽️ Garçon App
 
-Digital restaurant service platform that digitalizes table service experience in restaurants.
+Una piattaforma completa per la gestione di ristoranti con app mobile per clienti e tablet per camerieri.
 
-## Architecture
+## 🚀 Deploy Veloce
 
-This is a monorepo containing:
+### Opzione 1: Railway (Raccomandato)
+1. Vai su [Railway](https://railway.app/)
+2. Clicca "Deploy from GitHub"
+3. Seleziona questo repository
+4. Deploy automatico!
 
-- **Backend Services** (`packages/backend`) - Node.js microservices with TypeScript
-- **Mobile App** (`packages/mobile-app`) - React Native app for customers and waiters
-- **Admin Web Panel** (`packages/admin-web`) - React.js web interface for restaurant owners
+### Opzione 2: Render
+1. Vai su [Render](https://render.com/)
+2. Connetti il repository GitHub
+3. Seleziona "Web Service"
+4. Deploy automatico!
 
-## Quick Start
+## 📱 Componenti
 
-### Prerequisites
+### Backend API
+- **Tecnologie**: Node.js, Express, TypeScript
+- **Database**: PostgreSQL con Redis per caching
+- **Autenticazione**: JWT con middleware di sicurezza
+- **Pagamenti**: Stripe, PayPal, Apple Pay, Google Pay, Satispay
 
-- Node.js 18+ and npm 9+
-- Docker and Docker Compose
-- React Native development environment (for mobile development)
+### Mobile App (Clienti)
+- **Tecnologie**: React Native, TypeScript
+- **Funzionalità**: 
+  - Selezione tavolo tramite QR code
+  - Visualizzazione menu e ordinazioni
+  - Pagamenti multipli e split bill
+  - Tracking ordini in tempo reale
+  - Chiamata cameriere
 
-### Installation
+### Tablet App (Camerieri)
+- **Tecnologie**: React Native, TypeScript
+- **Funzionalità**:
+  - Gestione chiamate clienti
+  - Aggiornamento stato ordini
+  - Dashboard operativa
+  - Notifiche push
 
+## 🛠️ Sviluppo Locale
+
+### Prerequisiti
+- Node.js 18+
+- PostgreSQL
+- Redis (opzionale)
+
+### Setup Rapido
 ```bash
-# Install dependencies
+# Installa dipendenze
 npm install
 
-# Start development environment
-npm run docker:up
+# Avvia solo il backend (per test)
+start-backend-only.bat
+
+# Avvia tutto
 npm run dev
 ```
 
-### Development Commands
-
-```bash
-# Start all services in development mode
-npm run dev
-
-# Start individual services
-npm run dev:backend
-npm run dev:admin
-npm run dev:mobile
-
-# Code quality
-npm run lint
-npm run format
-npm run test
-
-# Docker management
-npm run docker:up    # Start databases and services
-npm run docker:down  # Stop all containers
-npm run docker:logs  # View container logs
-```
-
-## Project Structure
+## 🏗️ Architettura
 
 ```
 garcon-app/
 ├── packages/
-│   ├── backend/          # Node.js backend services
-│   ├── mobile-app/       # React Native mobile app
-│   └── admin-web/        # React.js admin panel
-├── docker/               # Docker configurations
-├── .github/              # GitHub Actions workflows
-└── docs/                 # Documentation
+│   ├── backend/          # API Server
+│   ├── mobile/           # App Clienti
+│   └── tablet/           # App Camerieri
+├── infrastructure/       # Deploy configs
+├── .github/workflows/    # CI/CD
+└── docker/              # Containerization
 ```
 
-## Development Workflow
+## 🔧 Configurazione
 
-1. Create feature branch from `main`
-2. Make changes in appropriate package
-3. Run tests and linting
-4. Create pull request
-5. Automated CI/CD pipeline runs tests and deploys
+### Variabili d'Ambiente
+```env
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5432/garcon
+REDIS_URL=redis://localhost:6379
 
-## Environment Setup
+# JWT
+JWT_SECRET=your-secret-key
 
-See individual package README files for specific setup instructions:
+# Pagamenti
+STRIPE_SECRET_KEY=sk_test_...
+PAYPAL_CLIENT_ID=your-paypal-id
+```
 
-- [Backend Setup](packages/backend/README.md)
-- [Mobile App Setup](packages/mobile-app/README.md)
-- [Admin Web Setup](packages/admin-web/README.md)
+## 📊 Features Implementate
+
+- ✅ Autenticazione e autorizzazione
+- ✅ Gestione menu e ordinazioni
+- ✅ Sistema di pagamenti multipli
+- ✅ Notifiche real-time
+- ✅ Gestione tavoli e location
+- ✅ Analytics e reporting
+- ✅ Sistema di prenotazioni
+- ✅ Monitoraggio e logging
+- ✅ Deploy automatizzato
+
+## 🚀 Deploy su Cloud
+
+Il progetto include configurazioni per:
+- **Railway**: Deploy con un click
+- **Render**: Deploy automatico
+- **Heroku**: Buildpack incluso
+- **AWS**: Terraform completo
+- **Docker**: Multi-stage build
+
+## 📈 Monitoraggio
+
+- Health checks automatici
+- Logging strutturato
+- Metriche performance
+- Alerting integrato
+
+## 🔒 Sicurezza
+
+- Rate limiting
+- Validazione input
+- Sanitizzazione dati
+- Audit logging
+- Crittografia end-to-end
+
+## 📞 Supporto
+
+Per problemi o domande, apri una issue su GitHub.
+
+---
+
+**Sviluppato con ❤️ per l'industria della ristorazione**

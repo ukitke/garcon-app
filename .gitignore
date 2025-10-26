@@ -7,7 +7,8 @@ yarn-error.log*
 # Production builds
 dist/
 build/
-coverage/
+*.tgz
+*.tar.gz
 
 # Environment variables
 .env
@@ -33,34 +34,46 @@ ehthumbs.db
 Thumbs.db
 
 # Logs
-logs
+logs/
 *.log
 
 # Runtime data
-pids
+pids/
 *.pid
 *.seed
 *.pid.lock
 
-# Docker
-.docker/
-
-# Mobile specific
-packages/mobile-app/android/app/build/
-packages/mobile-app/ios/build/
-packages/mobile-app/ios/DerivedData/
-packages/mobile-app/ios/Pods/
-packages/mobile-app/ios/*.xcworkspace/xcuserdata/
-packages/mobile-app/ios/*.xcodeproj/xcuserdata/
-
-# React Native
-packages/mobile-app/metro.config.js.bak
-packages/mobile-app/.expo/
-packages/mobile-app/.expo-shared/
-
-# Testing
+# Coverage directory used by tools like istanbul
 coverage/
 .nyc_output/
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# Database
+*.sqlite
+*.db
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Docker
+.dockerignore
 
 # Temporary files
 tmp/
