@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: garcon-backend
+    env: node
+    plan: free
+    buildCommand: cd packages/backend && npm install && npm install -g ts-node typescript
+    startCommand: cd packages/backend && ts-node src/index-simple.ts
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DISABLE_MONITORING
+        value: true

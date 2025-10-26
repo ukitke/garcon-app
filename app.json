@@ -1,0 +1,29 @@
+{
+  "name": "Garçon App Backend",
+  "description": "Digital restaurant service platform backend",
+  "repository": "https://github.com/your-username/garcon-app",
+  "logo": "https://node-js-sample.herokuapp.com/node.png",
+  "keywords": ["node", "express", "restaurant", "api"],
+  "image": "heroku/nodejs",
+  "env": {
+    "NODE_ENV": {
+      "description": "Node environment",
+      "value": "production"
+    },
+    "DISABLE_MONITORING": {
+      "description": "Disable advanced monitoring for simple deployment",
+      "value": "true"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ]
+}

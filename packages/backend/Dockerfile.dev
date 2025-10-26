@@ -1,0 +1,24 @@
+# Dockerfile per sviluppo - più semplice e veloce
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Installa dipendenze di sistema
+RUN apk add --no-cache curl
+
+# Copia package files
+COPY packages/backend/package*.json ./
+COPY package*.json ./
+
+# Installa dipendenze
+RUN npm install
+
+# Copia codice sorgente
+COPY packages/backend ./
+COPY tsconfig.json ./
+
+# Esponi porte
+EXPOSE 3000 3001
+
+# Comando di sviluppo con hot reload
+CMD ["npm", "run", "dev"]

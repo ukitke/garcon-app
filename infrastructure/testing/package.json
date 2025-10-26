@@ -1,0 +1,29 @@
+{
+  "name": "garcon-deployment-testing",
+  "version": "1.0.0",
+  "description": "Deployment testing and validation scripts for Garçon App",
+  "main": "deployment-validation.js",
+  "scripts": {
+    "validate": "node deployment-validation.js",
+    "smoke": "node smoke-tests.js",
+    "integration": "node integration-tests.js",
+    "uptime": "node ../monitoring/uptime-monitor.js",
+    "all": "npm run smoke && npm run integration && npm run uptime"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1400.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "keywords": [
+    "deployment",
+    "testing",
+    "validation",
+    "smoke-tests",
+    "integration-tests",
+    "garcon"
+  ],
+  "author": "Garçon Development Team",
+  "license": "MIT"
+}

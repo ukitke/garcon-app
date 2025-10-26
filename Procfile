@@ -1,0 +1,1 @@
+web: cd packages/backend && npx ts-node src/index-simple.ts
