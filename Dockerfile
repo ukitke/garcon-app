@@ -11,8 +11,8 @@ COPY packages/backend/package*.json ./
 # Installa dipendenze
 RUN npm install --production
 
-# Copia solo il file JavaScript diretto
-COPY packages/backend/src/index-railway-direct.js ./src/
+# Copia backend completo con database
+COPY packages/backend/src/index-railway-full.js ./src/
 
 # Esponi porta
 EXPOSE 3000
@@ -21,5 +21,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-# Avvia direttamente con Node.js
-CMD ["node", "src/index-railway-direct.js"]
+# Avvia backend completo con database
+CMD ["node", "src/index-railway-full.js"]
