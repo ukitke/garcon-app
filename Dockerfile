@@ -1,38 +1,19 @@
-# Multi-stage build for Garçon Backend
-FROM node:18-alpine AS builder
-
-WORKDIR /app
-
-# Copy package files
-COPY packages/backend/package*.json ./packages/backend/
-COPY package*.json ./
-
-# Install all dependencies (including dev dependencies for build)
-RUN cd packages/backend && npm ci
-
-# Copy source code
-COPY packages/backend ./packages/backend
-
-# Build TypeScript (if needed)
-RUN cd packages/backend && npm run build || echo "No build script found, using source directly"
-
-# Production stage
-FROM node:18-alpine AS production
+# Simple single-stage build for Railway
+FROM node:18-alpine
 
 WORKDIR /app
 
 # Install curl for health checks
 RUN apk add --no-cache curl
 
-# Copy package files
+# Copy package files first for better caching
 COPY packages/backend/package*.json ./packages/backend/
 
-# Install only production dependencies
+# Install dependencies
 RUN cd packages/backend && npm ci --only=production && npm cache clean --force
 
-# Copy built application or source code
-COPY --from=builder /app/packages/backend/src ./packages/backend/src
-COPY --from=builder /app/packages/backend/dist ./packages/backend/dist 2>/dev/null || echo "No dist folder found"
+# Copy source code
+COPY packages/backend/src ./packages/backend/src
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
